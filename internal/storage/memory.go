@@ -103,3 +103,45 @@ func (s *MemoryStorage) Exists(key string) bool {
 
 	return true
 }
+
+func (s *MemoryStorage) Keys() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	keys := make([]string, 0, len(s.data))
+
+	for key, value := range s.data {
+		if value.IsExpired() {
+			go s.deleteKey(key)
+			continue
+		}
+
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
+func (s *MemoryStorage) Size() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+
+	for key, value := range s.data {
+		if value.IsExpired() {
+			go s.deleteKey(key)
+			continue
+		}
+		count++
+	}
+
+	return count
+}
+
+func (s *MemoryStorage) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data = make(map[string]*Value)
+}

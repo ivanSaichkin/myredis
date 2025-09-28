@@ -14,4 +14,9 @@ type Storage interface {
 	SetWithTTL(key string, value interface{}, ttl time.Duration) error
 	Delete(key string) bool
 	Exists(key string) bool
+
+	// Utility operations
+	Keys() []string
+	Size() int
+	Clear()
 }
