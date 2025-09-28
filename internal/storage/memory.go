@@ -145,3 +145,61 @@ func (s *MemoryStorage) Clear() {
 
 	s.data = make(map[string]*Value)
 }
+
+func (s *MemoryStorage) TTL(key string) (time.Duration, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	value, exists := s.data[key]
+
+	if !exists {
+		return 0, ErrKeyNotFound
+	}
+
+	if value.IsExpired() {
+		go s.deleteKey(key)
+		return 0, ErrKeyExpired
+	}
+
+	if value.ExpiredAt.IsZero() {
+		return -1, nil
+	}
+
+	return time.Until(value.ExpiredAt), nil
+}
+
+func (s *MemoryStorage) Expire(key string, ttl time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	value, exists := s.data[key]
+	if !exists || value.IsExpired() {
+		return false
+	}
+
+	value.ExpiredAt = time.Now().Add(ttl)
+	return true
+}
+
+// Auto expire checker
+func (s *MemoryStorage) checkExpiredKeys() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+
+	for key, value := range s.data {
+		if !value.ExpiredAt.IsZero() && now.After(value.ExpiredAt) {
+			delete(s.data, key)
+		}
+	}
+}
+
+func (s *MemoryStorage) StartExpirationChecker(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	go func() {
+		for range ticker.C {
+			s.checkExpiredKeys()
+		}
+	}()
+}

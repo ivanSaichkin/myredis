@@ -19,4 +19,8 @@ type Storage interface {
 	Keys() []string
 	Size() int
 	Clear()
+
+	//TTL operations
+	TTL(key string) (time.Duration, error)
+	Expire(key string, ttl time.Duration) bool
 }
