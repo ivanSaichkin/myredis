@@ -5,9 +5,26 @@ import (
 	"time"
 )
 
-func TestBasicSetGet(t *testing.T) {
-	store := NewMemoryStorage()
+type TestStorage struct {
+	NewStorage func() Storage
+}
 
+func (ts *TestStorage) RunTests(t *testing.T) {
+	t.Run("BasicSetGet", ts.testBasicSetGet)
+	t.Run("GetNonExistent", ts.testGetNonExistent)
+	t.Run("Delete", ts.testDelete)
+	t.Run("Exists", ts.testExists)
+	t.Run("SetWithTTL", ts.testSetWithTTL)
+	t.Run("Expire", ts.testExpire)
+	t.Run("TTL", ts.testTTL)
+	t.Run("Keys", ts.testKeys)
+	t.Run("Size", ts.testSize)
+	t.Run("Clear", ts.testClear)
+	t.Run("ConcurrentAccess", ts.testConcurrentAccess)
+}
+
+func (ts *TestStorage) testBasicSetGet(t *testing.T) {
+	store := ts.NewStorage()
 	if err := store.Set("key1", "value1"); err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -35,8 +52,8 @@ func TestBasicSetGet(t *testing.T) {
 	}
 }
 
-func TestGetNonExistent(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testGetNonExistent(t *testing.T) {
+	store := ts.NewStorage()
 
 	val, err := store.Get("nonexistent")
 	if err != ErrKeyNotFound {
@@ -47,8 +64,8 @@ func TestGetNonExistent(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testDelete(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 
@@ -68,8 +85,8 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-func TestExists(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testExists(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 
@@ -81,8 +98,8 @@ func TestExists(t *testing.T) {
 	}
 }
 
-func TestSetWithTTL(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testSetWithTTL(t *testing.T) {
+	store := ts.NewStorage()
 
 	err := store.SetWithTTL("temp", "data", 100*time.Millisecond)
 	if err != nil {
@@ -100,8 +117,8 @@ func TestSetWithTTL(t *testing.T) {
 	}
 }
 
-func TestExpire(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testExpire(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 
@@ -121,8 +138,8 @@ func TestExpire(t *testing.T) {
 	}
 }
 
-func TestTTL(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testTTL(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 	ttl, err := store.TTL("key1")
@@ -148,8 +165,8 @@ func TestTTL(t *testing.T) {
 	}
 }
 
-func TestKeys(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testKeys(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 	store.Set("key2", "value2")
@@ -174,8 +191,8 @@ func TestKeys(t *testing.T) {
 	}
 }
 
-func TestSize(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testSize(t *testing.T) {
+	store := ts.NewStorage()
 
 	if store.Size() != 0 {
 		t.Errorf("Initial size should be 0, got %d", store.Size())
@@ -200,8 +217,8 @@ func TestSize(t *testing.T) {
 	}
 }
 
-func TestClear(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testClear(t *testing.T) {
+	store := ts.NewStorage()
 
 	store.Set("key1", "value1")
 	store.Set("key2", "value2")
@@ -218,8 +235,8 @@ func TestClear(t *testing.T) {
 	}
 }
 
-func TestConcurrentAccess(t *testing.T) {
-	store := NewMemoryStorage()
+func (ts *TestStorage) testConcurrentAccess(t *testing.T) {
+	store := ts.NewStorage()
 	const numGoroutines = 10
 	const operationsPerGoroutine = 100
 
