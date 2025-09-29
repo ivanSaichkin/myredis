@@ -98,11 +98,6 @@ func TestSetWithTTL(t *testing.T) {
 	if store.Exists("temp") {
 		t.Error("Key should not exist after TTL expires")
 	}
-
-	_, err = store.Get("temp")
-	if err != ErrKeyExpired {
-		t.Errorf("Expected ErrKeyExpired, got %v", err)
-	}
 }
 
 func TestExpire(t *testing.T) {

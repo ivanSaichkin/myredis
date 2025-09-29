@@ -33,7 +33,7 @@ func (s *MemoryStorage) Get(key string) (*Value, error) {
 	}
 
 	if value.IsExpired() {
-		go s.deleteKey(key)
+		s.deleteKey(key)
 		return nil, ErrKeyExpired
 	}
 
@@ -74,7 +74,6 @@ func (s *MemoryStorage) setInternal(key string, value interface{}, ttl time.Dura
 func (s *MemoryStorage) Delete(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	return s.deleteKey(key)
 }
 
@@ -97,7 +96,7 @@ func (s *MemoryStorage) Exists(key string) bool {
 	}
 
 	if value.IsExpired() {
-		go s.deleteKey(key)
+		s.deleteKey(key)
 		return false
 	}
 
@@ -112,7 +111,7 @@ func (s *MemoryStorage) Keys() []string {
 
 	for key, value := range s.data {
 		if value.IsExpired() {
-			go s.deleteKey(key)
+			s.deleteKey(key)
 			continue
 		}
 
@@ -130,7 +129,7 @@ func (s *MemoryStorage) Size() int {
 
 	for key, value := range s.data {
 		if value.IsExpired() {
-			go s.deleteKey(key)
+			s.deleteKey(key)
 			continue
 		}
 		count++
@@ -157,7 +156,7 @@ func (s *MemoryStorage) TTL(key string) (time.Duration, error) {
 	}
 
 	if value.IsExpired() {
-		go s.deleteKey(key)
+		s.deleteKey(key)
 		return 0, ErrKeyExpired
 	}
 
