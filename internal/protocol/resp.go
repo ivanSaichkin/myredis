@@ -51,6 +51,7 @@ func NewRESPWriter(w io.Writer) *RESPWriter {
 	}
 }
 
+// Read function
 func (r *RESPReader) Read() (Value, error) {
 	line, err := r.readLine()
 	if err != nil {
@@ -152,4 +153,99 @@ func (r *RESPReader) readArray(line []byte) (Value, error) {
 		Array:  data,
 		IsNull: false,
 	}, nil
+}
+
+// Write function
+func (w *RESPWriter) Write(value Value) error {
+	switch value.Type {
+	case SimpleString:
+		return w.writeSimpleString(value.Str)
+	case Error:
+		return w.writeError(value.Str)
+	case Integer:
+		return w.writeInteger(value.Num)
+	case BulkString:
+		return w.writeBulkString(value.Bulk)
+	case Array:
+		return w.writeArray(value.Array)
+	default:
+		return ErrUnsupportedType
+	}
+}
+
+func (w *RESPWriter) writeSimpleString(s string) error {
+	if _, err := w.writer.WriteString("+" + s + "\r\n"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *RESPWriter) writeError(s string) error {
+	if _, err := w.writer.WriteString("-" + s + "\r\n"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *RESPWriter) writeInteger(n int) error {
+	if _, err := w.writer.WriteString(":" + strconv.Itoa(n) + "\r\n"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *RESPWriter) writeBulkString(s string) error {
+	if s == "" {
+		if _, err := w.writer.WriteString("$-1\r\n"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := w.writer.WriteString("$" + strconv.Itoa(len(s)) + "\r\n" + s + "\r\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (w *RESPWriter) writeArray(arr []Value) error {
+	if _, err := w.writer.WriteString("*" + strconv.Itoa(len(arr)) + "\r\n"); err != nil {
+		return err
+	}
+
+	for _, item := range arr {
+		if err := w.Write(item); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (w *RESPWriter) Flush() error {
+	return w.writer.Flush()
+}
+
+// functions for common resp
+func (w *RESPWriter) WriteOK() error {
+	return w.writeSimpleString("OK")
+}
+
+func (w *RESPWriter) WriteString(s string) error {
+	return w.writeBulkString(s)
+}
+
+func (w *RESPWriter) WriteInteger(n int) error {
+	return w.writeInteger(n)
+}
+
+func (w *RESPWriter) WriteNull() error {
+	return w.writeBulkString("")
+}
+
+func (w *RESPWriter) WriteError(err error) error {
+	return w.writeError("ERR" + err.Error())
 }
