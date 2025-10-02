@@ -249,3 +249,21 @@ func (w *RESPWriter) WriteNull() error {
 func (w *RESPWriter) WriteError(err error) error {
 	return w.writeError("ERR" + err.Error())
 }
+
+func (v Value) String() (string, error) {
+	switch v.Type {
+	case SimpleString:
+		return v.Str, nil
+	case BulkString:
+		if v.IsNull {
+			return "", ErrInvalidSyntax
+		}
+		return v.Bulk, nil
+	case Error:
+		return v.Str, nil
+	case Integer:
+		return strconv.Itoa(v.Num), nil
+	default:
+		return "", ErrUnsupportedType
+	}
+}
