@@ -10,12 +10,12 @@ import (
 )
 
 type Executor struct {
-	Storage storage.Storage
+	storage storage.Storage
 }
 
 func NewExecutor(store storage.Storage) *Executor {
 	return &Executor{
-		Storage: store,
+		storage: store,
 	}
 }
 
@@ -32,9 +32,13 @@ func (e *Executor) Execute(cmd *Command) protocol.Value {
 	case "EXISTS":
 		return e.exists(cmd)
 	case "EXPIRE":
-		return e.exists(cmd)
+		return e.expire(cmd)
 	case "CLEAR", "FLUSHDB":
 		return e.clear(cmd)
+	case "TTL":
+		return e.ttl(cmd)
+	case "KEYS":
+		return e.keys(cmd)
 	default:
 		return protocol.Value{
 			Type: protocol.Error,
@@ -85,9 +89,9 @@ func (e *Executor) set(cmd *Command) protocol.Value {
 
 	var err error
 	if ttl > 0 {
-		err = e.Storage.SetWithTTL(key, value, ttl)
+		err = e.storage.SetWithTTL(key, value, ttl)
 	} else {
-		err = e.Storage.Set(key, value)
+		err = e.storage.Set(key, value)
 	}
 
 	if err != nil {
@@ -111,7 +115,7 @@ func (e *Executor) get(cmd *Command) protocol.Value {
 		}
 	}
 
-	val, err := e.Storage.Get(cmd.Args[0])
+	val, err := e.storage.Get(cmd.Args[0])
 	if err != nil {
 		if err == storage.ErrKeyNotFound || err == storage.ErrKeyExpired {
 			return protocol.Value{
@@ -146,7 +150,7 @@ func (e *Executor) del(cmd *Command) protocol.Value {
 
 	deletedCount := 0
 	for _, key := range cmd.Args {
-		if e.Storage.Delete(key) {
+		if e.storage.Delete(key) {
 			deletedCount++
 		}
 	}
@@ -167,7 +171,7 @@ func (e *Executor) exists(cmd *Command) protocol.Value {
 
 	existsCount := 0
 	for _, key := range cmd.Args {
-		if e.Storage.Exists(key) {
+		if e.storage.Exists(key) {
 			existsCount++
 		}
 	}
@@ -195,7 +199,7 @@ func (e *Executor) expire(cmd *Command) protocol.Value {
 		}
 	}
 
-	success := e.Storage.Expire(key, time.Duration(seconds)*time.Second)
+	success := e.storage.Expire(key, time.Duration(seconds)*time.Second)
 	result := 0
 	if success {
 		result = 1
@@ -208,9 +212,94 @@ func (e *Executor) expire(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) clear(cmd *Command) protocol.Value {
-	e.Storage.Clear()
+	e.storage.Clear()
 	return protocol.Value{
 		Type: protocol.SimpleString,
 		Str:  "OK",
 	}
+}
+
+func (e *Executor) ttl(cmd *Command) protocol.Value {
+	if len(cmd.Args) != 1 {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR wrong number of arguments for 'ttl' command",
+		}
+	}
+
+	ttl, err := e.storage.TTL(cmd.Args[0])
+	if err != nil {
+		if err == storage.ErrKeyNotFound {
+			return protocol.Value{
+				Type: protocol.Integer,
+				Num:  -2,
+			}
+		}
+
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR" + err.Error(),
+		}
+	}
+
+	if ttl == -1 {
+		return protocol.Value{
+			Type: protocol.Integer,
+			Num:  -1,
+		}
+	}
+
+	return protocol.Value{
+		Type: protocol.Integer,
+		Num:  int(ttl / time.Second),
+	}
+}
+
+func (e *Executor) keys(cmd *Command) protocol.Value {
+	if len(cmd.Args) != 1 {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR wrong number of arguments for 'keys' command",
+		}
+	}
+
+	pattern := cmd.Args[0]
+	allKeys := e.storage.Keys()
+
+	var matchedKeys []string
+	if pattern == "*" {
+		matchedKeys = allKeys
+	} else {
+		for _, key := range allKeys {
+			if simpleMatch(key, pattern) {
+				matchedKeys = append(matchedKeys, key)
+			}
+		}
+	}
+
+	array := make([]protocol.Value, len(matchedKeys))
+	for i, key := range matchedKeys {
+		array[i] = protocol.Value{
+			Type: protocol.BulkString,
+			Bulk: key,
+		}
+	}
+
+	return protocol.Value{
+		Type:  protocol.Array,
+		Array: array,
+	}
+}
+
+func simpleMatch(s, pattern string) bool {
+	if pattern == "*" {
+		return true
+	}
+
+	if strings.HasSuffix(pattern, "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(s, prefix)
+	}
+
+	return s == pattern
 }
