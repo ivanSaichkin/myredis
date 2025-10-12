@@ -1,29 +1,24 @@
 package storage
 
 import (
-	"errors"
+	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
 
-var (
-	ErrKeyNotFound = errors.New("key not found")
-	ErrKeyExpired  = errors.New("key expired")
-)
-
 type MemoryStorage struct {
 	mu   sync.RWMutex
-	data map[string]*Value
+	data map[string]*StorageValue
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		data: make(map[string]*Value),
+		data: make(map[string]*StorageValue),
 	}
 }
 
-// Get method
-func (s *MemoryStorage) Get(key string) (*Value, error) {
+func (s *MemoryStorage) Get(key string) (*StorageValue, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -33,18 +28,12 @@ func (s *MemoryStorage) Get(key string) (*Value, error) {
 	}
 
 	if value.IsExpired() {
-		s.deleteKey(key)
 		return nil, ErrKeyExpired
 	}
 
 	return value, nil
 }
 
-func (v *Value) IsExpired() bool {
-	return !v.ExpiredAt.IsZero() && time.Now().After(v.ExpiredAt)
-}
-
-// Set methods
 func (s *MemoryStorage) Set(key string, value interface{}) error {
 	return s.setInternal(key, value, 0)
 }
@@ -57,23 +46,29 @@ func (s *MemoryStorage) setInternal(key string, value interface{}, ttl time.Dura
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	newValue := &Value{
-		Value: value,
+	var storageValue *StorageValue
+
+	switch v := value.(type) {
+	case string:
+		storageValue = NewStringValue(v)
+	case *StorageValue:
+		storageValue = v
+	default:
+		storageValue = NewStringValue(toString(v))
 	}
 
 	if ttl > 0 {
-		newValue.ExpiredAt = time.Now().Add(ttl)
+		storageValue.ExpiredAt = time.Now().Add(ttl)
 	}
 
-	s.data[key] = newValue
-
+	s.data[key] = storageValue
 	return nil
 }
 
-// Delete methods
 func (s *MemoryStorage) Delete(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.deleteKey(key)
 }
 
@@ -85,7 +80,6 @@ func (s *MemoryStorage) deleteKey(key string) bool {
 	return false
 }
 
-// Exists method
 func (s *MemoryStorage) Exists(key string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -96,11 +90,26 @@ func (s *MemoryStorage) Exists(key string) bool {
 	}
 
 	if value.IsExpired() {
-		s.deleteKey(key)
 		return false
 	}
 
 	return true
+}
+
+func (s *MemoryStorage) Type(key string) (ValueType, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	value, exists := s.data[key]
+	if !exists {
+		return StringType, ErrKeyNotFound
+	}
+
+	if value.IsExpired() {
+		return StringType, ErrKeyExpired
+	}
+
+	return value.Type, nil
 }
 
 func (s *MemoryStorage) Keys() []string {
@@ -110,12 +119,9 @@ func (s *MemoryStorage) Keys() []string {
 	keys := make([]string, 0, len(s.data))
 
 	for key, value := range s.data {
-		if value.IsExpired() {
-			s.deleteKey(key)
-			continue
+		if !value.IsExpired() {
+			keys = append(keys, key)
 		}
-
-		keys = append(keys, key)
 	}
 
 	return keys
@@ -126,13 +132,10 @@ func (s *MemoryStorage) Size() int {
 	defer s.mu.RUnlock()
 
 	count := 0
-
-	for key, value := range s.data {
-		if value.IsExpired() {
-			s.deleteKey(key)
-			continue
+	for _, value := range s.data {
+		if !value.IsExpired() {
+			count++
 		}
-		count++
 	}
 
 	return count
@@ -142,30 +145,10 @@ func (s *MemoryStorage) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data = make(map[string]*Value)
+	s.data = make(map[string]*StorageValue)
 }
 
-func (s *MemoryStorage) TTL(key string) (time.Duration, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	value, exists := s.data[key]
-
-	if !exists {
-		return 0, ErrKeyNotFound
-	}
-
-	if value.IsExpired() {
-		s.deleteKey(key)
-		return 0, ErrKeyExpired
-	}
-
-	if value.ExpiredAt.IsZero() {
-		return -1, nil
-	}
-
-	return time.Until(value.ExpiredAt), nil
-}
+// TTL operations
 
 func (s *MemoryStorage) Expire(key string, ttl time.Duration) bool {
 	s.mu.Lock()
@@ -180,13 +163,42 @@ func (s *MemoryStorage) Expire(key string, ttl time.Duration) bool {
 	return true
 }
 
-// Auto expire checker
-func (s *MemoryStorage) checkExpiredKeys() {
+func (s *MemoryStorage) TTL(key string) (time.Duration, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	value, exists := s.data[key]
+	if !exists {
+		return 0, ErrKeyNotFound
+	}
+
+	if value.IsExpired() {
+		return 0, ErrKeyExpired
+	}
+
+	if value.ExpiredAt.IsZero() {
+		return -1, nil
+	}
+
+	return time.Until(value.ExpiredAt), nil
+}
+
+// Cleanup
+
+func (s *MemoryStorage) StartExpirationChecker(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	go func() {
+		for range ticker.C {
+			s.CleanupExpired()
+		}
+	}()
+}
+
+func (s *MemoryStorage) CleanupExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now()
-
 	for key, value := range s.data {
 		if !value.ExpiredAt.IsZero() && now.After(value.ExpiredAt) {
 			delete(s.data, key)
@@ -194,11 +206,32 @@ func (s *MemoryStorage) checkExpiredKeys() {
 	}
 }
 
-func (s *MemoryStorage) StartExpirationChecker(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for range ticker.C {
-			s.checkExpiredKeys()
+// Helper functions
+
+func toString(v interface{}) string {
+	switch v := v.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case bool:
+		return strconv.FormatBool(v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func intersectSlices(a, b []string) []string {
+	set := make(map[string]bool)
+	for _, item := range a {
+		set[item] = true
+	}
+
+	result := make([]string, 0)
+	for _, item := range b {
+		if set[item] {
+			result = append(result, item)
 		}
-	}()
+	}
+	return result
 }

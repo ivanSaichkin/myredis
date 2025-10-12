@@ -5,43 +5,49 @@ import (
 	"strings"
 )
 
+// Command представляет разобранную команду
 type Command struct {
 	Name string
 	Args []string
 }
 
+// Parser парсит RESP значения в команды
 type Parser struct {
 	reader *protocol.RESPReader
 }
 
+// NewParser создает новый парсер команд
 func NewParser(reader *protocol.RESPReader) *Parser {
 	return &Parser{
 		reader: reader,
 	}
 }
 
+// ParseCommand парсит следующую команду из потока
 func (p *Parser) ParseCommand() (*Command, error) {
-	val, err := p.reader.Read()
+	value, err := p.reader.Read()
 	if err != nil {
 		return nil, err
 	}
 
-	if val.Type != protocol.Array || val.IsNull {
+	if value.Type != protocol.Array || value.IsNull {
 		return nil, protocol.ErrInvalidSyntax
 	}
 
-	if len(val.Array) == 0 {
+	if len(value.Array) == 0 {
 		return nil, protocol.ErrInvalidSyntax
 	}
 
-	cmdName, err := val.Array[0].String()
+	// Первый элемент массива - имя команды
+	cmdName, err := value.Array[0].String()
 	if err != nil {
 		return nil, err
 	}
 
-	args := make([]string, len(val.Array)-1)
-	for i := 1; i < len(val.Array); i++ {
-		arg, err := val.Array[i].String()
+	// Остальные элементы - аргументы
+	args := make([]string, len(value.Array)-1)
+	for i := 1; i < len(value.Array); i++ {
+		arg, err := value.Array[i].String()
 		if err != nil {
 			return nil, err
 		}
@@ -52,5 +58,4 @@ func (p *Parser) ParseCommand() (*Command, error) {
 		Name: strings.ToUpper(cmdName),
 		Args: args,
 	}, nil
-
 }

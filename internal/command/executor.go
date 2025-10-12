@@ -10,17 +10,27 @@ import (
 )
 
 type Executor struct {
-	storage storage.Storage
+	storage   storage.Storage
+	validator *Validator
 }
 
 func NewExecutor(store storage.Storage) *Executor {
 	return &Executor{
-		storage: store,
+		storage:   store,
+		validator: NewValidator(store),
 	}
 }
 
 func (e *Executor) Execute(cmd *Command) protocol.Value {
+	if err := e.validator.ValidateCommand(cmd); err != nil {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR " + err.Error(),
+		}
+	}
+
 	switch cmd.Name {
+	// String commands
 	case "PING":
 		return e.ping(cmd)
 	case "SET":
@@ -33,12 +43,61 @@ func (e *Executor) Execute(cmd *Command) protocol.Value {
 		return e.exists(cmd)
 	case "EXPIRE":
 		return e.expire(cmd)
-	case "CLEAR", "FLUSHDB":
-		return e.clear(cmd)
 	case "TTL":
 		return e.ttl(cmd)
+	case "TYPE":
+		return e.keyType(cmd)
+
+	// Hash commands
+	case "HSET":
+		return e.hset(cmd)
+	case "HGET":
+		return e.hget(cmd)
+	case "HDEL":
+		return e.hdel(cmd)
+	case "HEXISTS":
+		return e.hexists(cmd)
+	case "HGETALL":
+		return e.hgetall(cmd)
+	case "HKEYS":
+		return e.hkeys(cmd)
+	case "HLEN":
+		return e.hlen(cmd)
+
+	// List commands
+	case "LPUSH":
+		return e.lpush(cmd)
+	case "RPUSH":
+		return e.rpush(cmd)
+	case "LPOP":
+		return e.lpop(cmd)
+	case "RPOP":
+		return e.rpop(cmd)
+	case "LLEN":
+		return e.llen(cmd)
+	case "LRANGE":
+		return e.lrange(cmd)
+
+	// Set commands
+	case "SADD":
+		return e.sadd(cmd)
+	case "SREM":
+		return e.srem(cmd)
+	case "SISMEMBER":
+		return e.sismember(cmd)
+	case "SMEMBERS":
+		return e.smembers(cmd)
+	case "SCARD":
+		return e.scard(cmd)
+	case "SINTER":
+		return e.sinter(cmd)
+
+	// Utility commands
 	case "KEYS":
 		return e.keys(cmd)
+	case "FLUSHDB", "CLEAR":
+		return e.clear(cmd)
+
 	default:
 		return protocol.Value{
 			Type: protocol.Error,
@@ -47,6 +106,8 @@ func (e *Executor) Execute(cmd *Command) protocol.Value {
 	}
 }
 
+// String commands
+
 func (e *Executor) ping(cmd *Command) protocol.Value {
 	if len(cmd.Args) > 0 {
 		return protocol.Value{
@@ -54,7 +115,6 @@ func (e *Executor) ping(cmd *Command) protocol.Value {
 			Bulk: cmd.Args[0],
 		}
 	}
-
 	return protocol.Value{
 		Type: protocol.SimpleString,
 		Str:  "PONG",
@@ -62,13 +122,6 @@ func (e *Executor) ping(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) set(cmd *Command) protocol.Value {
-	if len(cmd.Args) < 2 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'set' command",
-		}
-	}
-
 	key := cmd.Args[0]
 	value := cmd.Args[1]
 
@@ -97,7 +150,7 @@ func (e *Executor) set(cmd *Command) protocol.Value {
 	if err != nil {
 		return protocol.Value{
 			Type: protocol.Error,
-			Str:  "ERR" + err.Error(),
+			Str:  "ERR " + err.Error(),
 		}
 	}
 
@@ -108,13 +161,6 @@ func (e *Executor) set(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) get(cmd *Command) protocol.Value {
-	if len(cmd.Args) != 1 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'get' command",
-		}
-	}
-
 	val, err := e.storage.Get(cmd.Args[0])
 	if err != nil {
 		if err == storage.ErrKeyNotFound || err == storage.ErrKeyExpired {
@@ -125,13 +171,20 @@ func (e *Executor) get(cmd *Command) protocol.Value {
 		}
 		return protocol.Value{
 			Type: protocol.Error,
-			Str:  "ERR" + err.Error(),
+			Str:  "ERR " + err.Error(),
 		}
 	}
 
-	strVal, ok := val.Value.(string)
+	if val.Type != storage.StringType {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "WRONGTYPE Operation against a key holding the wrong kind of value",
+		}
+	}
+
+	strVal, ok := val.Data.(string)
 	if !ok {
-		strVal = fmt.Sprintf("%v", val.Value)
+		strVal = fmt.Sprintf("%v", val.Data)
 	}
 
 	return protocol.Value{
@@ -141,13 +194,6 @@ func (e *Executor) get(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) del(cmd *Command) protocol.Value {
-	if len(cmd.Args) < 1 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'del' command",
-		}
-	}
-
 	deletedCount := 0
 	for _, key := range cmd.Args {
 		if e.storage.Delete(key) {
@@ -162,13 +208,6 @@ func (e *Executor) del(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) exists(cmd *Command) protocol.Value {
-	if len(cmd.Args) < 1 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'exists' command",
-		}
-	}
-
 	existsCount := 0
 	for _, key := range cmd.Args {
 		if e.storage.Exists(key) {
@@ -183,13 +222,6 @@ func (e *Executor) exists(cmd *Command) protocol.Value {
 }
 
 func (e *Executor) expire(cmd *Command) protocol.Value {
-	if len(cmd.Args) != 2 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'expire' command",
-		}
-	}
-
 	key := cmd.Args[0]
 	seconds, err := strconv.Atoi(cmd.Args[1])
 	if err != nil {
@@ -211,22 +243,7 @@ func (e *Executor) expire(cmd *Command) protocol.Value {
 	}
 }
 
-func (e *Executor) clear(cmd *Command) protocol.Value {
-	e.storage.Clear()
-	return protocol.Value{
-		Type: protocol.SimpleString,
-		Str:  "OK",
-	}
-}
-
 func (e *Executor) ttl(cmd *Command) protocol.Value {
-	if len(cmd.Args) != 1 {
-		return protocol.Value{
-			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'ttl' command",
-		}
-	}
-
 	ttl, err := e.storage.TTL(cmd.Args[0])
 	if err != nil {
 		if err == storage.ErrKeyNotFound {
@@ -235,41 +252,60 @@ func (e *Executor) ttl(cmd *Command) protocol.Value {
 				Num:  -2,
 			}
 		}
-
 		return protocol.Value{
 			Type: protocol.Error,
-			Str:  "ERR" + err.Error(),
+			Str:  "ERR " + err.Error(),
 		}
 	}
 
 	if ttl == -1 {
+		// No TTL
 		return protocol.Value{
 			Type: protocol.Integer,
 			Num:  -1,
 		}
 	}
 
+	// Convert to seconds
 	return protocol.Value{
 		Type: protocol.Integer,
 		Num:  int(ttl / time.Second),
 	}
 }
 
-func (e *Executor) keys(cmd *Command) protocol.Value {
-	if len(cmd.Args) != 1 {
+func (e *Executor) keyType(cmd *Command) protocol.Value {
+	keyType, err := e.storage.Type(cmd.Args[0])
+	if err != nil {
+		if err == storage.ErrKeyNotFound {
+			return protocol.Value{
+				Type: protocol.SimpleString,
+				Str:  "none",
+			}
+		}
 		return protocol.Value{
 			Type: protocol.Error,
-			Str:  "ERR wrong number of arguments for 'keys' command",
+			Str:  "ERR " + err.Error(),
 		}
 	}
 
+	return protocol.Value{
+		Type: protocol.SimpleString,
+		Str:  keyType.String(),
+	}
+}
+
+// Utility commands
+
+func (e *Executor) keys(cmd *Command) protocol.Value {
 	pattern := cmd.Args[0]
 	allKeys := e.storage.Keys()
 
+	// Simple pattern matching (only * supported for now)
 	var matchedKeys []string
 	if pattern == "*" {
 		matchedKeys = allKeys
 	} else {
+		// Basic pattern matching
 		for _, key := range allKeys {
 			if simpleMatch(key, pattern) {
 				matchedKeys = append(matchedKeys, key)
@@ -277,9 +313,10 @@ func (e *Executor) keys(cmd *Command) protocol.Value {
 		}
 	}
 
-	array := make([]protocol.Value, len(matchedKeys))
+	// Convert to RESP array
+	result := make([]protocol.Value, len(matchedKeys))
 	for i, key := range matchedKeys {
-		array[i] = protocol.Value{
+		result[i] = protocol.Value{
 			Type: protocol.BulkString,
 			Bulk: key,
 		}
@@ -287,15 +324,28 @@ func (e *Executor) keys(cmd *Command) protocol.Value {
 
 	return protocol.Value{
 		Type:  protocol.Array,
-		Array: array,
+		Array: result,
 	}
 }
 
+func (e *Executor) clear(cmd *Command) protocol.Value {
+	e.storage.Clear()
+	return protocol.Value{
+		Type: protocol.SimpleString,
+		Str:  "OK",
+	}
+}
+
+// Helper functions
+
+// simpleMatch does basic pattern matching with * wildcard
 func simpleMatch(s, pattern string) bool {
 	if pattern == "*" {
 		return true
 	}
 
+	// Convert pattern to regex-like but simple
+	// Only handles * at the end for now
 	if strings.HasSuffix(pattern, "*") {
 		prefix := pattern[:len(pattern)-1]
 		return strings.HasPrefix(s, prefix)
