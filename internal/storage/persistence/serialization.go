@@ -15,12 +15,12 @@ const (
 )
 
 const (
-	RDBTypeString = 0
-	RDBTypeHash   = 1
-	RDBTypeList   = 2
-	RDBTypeSet    = 3
-	RDBTypeExpire = 0xFD
-	RDBTypeEOF    = 0xFF
+	RDBTypeString      = 0
+	RDBTypeHash        = 1
+	RDBTypeList        = 2
+	RDBTypeSet         = 3
+	RDBTypeExpire byte = 0xFD
+	RDBTypeEOF    byte = 0xFF
 )
 
 type RDBFileHeader struct {

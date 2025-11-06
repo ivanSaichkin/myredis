@@ -59,10 +59,10 @@ func DefaulteConfig() *Config {
 	}
 }
 
-func (c *Config) GetRDBPath() string {
-	return filepath.Join(c.Persistance.DataDir, c.Persistance.RDBFileName)
+func (c *PersistanceConfig) GetRDBPath() string {
+	return filepath.Join(c.DataDir, c.RDBFileName)
 }
 
-func (c *Config) GetAOFPath() string {
-	return filepath.Join(c.Persistance.DataDir, c.Persistance.AOFFilename)
+func (c *PersistanceConfig) GetAOFPath() string {
+	return filepath.Join(c.DataDir, c.AOFFilename)
 }
