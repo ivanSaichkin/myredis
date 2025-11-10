@@ -83,11 +83,11 @@ func (m *RDBManager) Save() error {
 	return nil
 }
 
-func (r *RDBManager) Load() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *RDBManager) Load() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	path := r.config.GetRDBPath()
+	path := m.config.GetRDBPath()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	}
@@ -107,22 +107,22 @@ func (r *RDBManager) Load() error {
 		return fmt.Errorf("invalid RDB file format")
 	}
 
-	r.storage.Clear()
+	m.storage.Clear()
 
 	for i := uint32(0); i < header.KeyCount; i++ {
-		key, value, err := r.readKey(file)
+		key, value, err := m.readKey(file)
 		if err != nil {
 			return fmt.Errorf("failed to read key %d: %v", i, err)
 		}
 
-		if err := r.storage.Set(key, value); err != nil {
+		if err := m.storage.Set(key, value); err != nil {
 			return fmt.Errorf("failed to restore key %s: %v", key, err)
 		}
 
 		if !value.ExpiredAt.IsZero() {
 			ttl := time.Until(value.ExpiredAt)
 			if ttl > 0 {
-				r.storage.Expire(key, ttl)
+				m.storage.Expire(key, ttl)
 			}
 		}
 	}
@@ -280,10 +280,40 @@ func (m *RDBManager) readValueData(file *os.File) ([]byte, error) {
 	return data, nil
 }
 
-func (r *RDBManager) calculateChecksum(keys []string) uint32 {
+func (m *RDBManager) calculateChecksum(keys []string) uint32 {
 	var sum uint32
 	for _, key := range keys {
 		sum += uint32(len(key))
 	}
 	return sum
+}
+
+func (m *RDBManager) NotifyChanges() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.changes++
+
+	if m.config.RDBEnabled && m.changes >= m.config.RDBChangesThreshold {
+		go func() {
+			if err := m.Save(); err != nil {
+				fmt.Printf("Auto-save failed: %v\n", err)
+			}
+		}()
+	}
+}
+
+func (m *RDBManager) StartAutoSave() {
+	if m.config.RDBEnabled || m.config.RDBSaveInterval == 0 {
+		return
+	}
+
+	ticker := time.NewTicker(m.config.RDBSaveInterval)
+	go func() {
+		for range ticker.C {
+			if err := m.Save(); err != nil {
+				fmt.Printf("Auto-save failed: %v\n", err)
+			}
+		}
+	}()
 }
