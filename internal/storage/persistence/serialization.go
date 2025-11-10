@@ -27,7 +27,7 @@ type RDBFileHeader struct {
 	Magic     [5]byte
 	Version   uint16
 	Timestamp int64
-	KeyCount  int32
+	KeyCount  uint32
 }
 
 type RDBEntry struct {

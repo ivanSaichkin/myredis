@@ -44,7 +44,7 @@ func (m *RDBManager) Save() error {
 		Magic:     [5]byte{'M', 'Y', 'R', 'D', 'B'},
 		Version:   RDBVersion,
 		Timestamp: time.Now().Unix(),
-		KeyCount:  int32(len(keys)),
+		KeyCount:  uint32(len(keys)),
 	}
 
 	if err := binary.Write(file, binary.BigEndian, header); err != nil {
@@ -80,6 +80,66 @@ func (m *RDBManager) Save() error {
 	}
 
 	m.changes = 0
+	return nil
+}
+
+func (r *RDBManager) Load() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	path := r.config.GetRDBPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open RDB file: %v", err)
+	}
+	defer file.Close()
+
+	var header RDBFileHeader
+	if err := binary.Read(file, binary.BigEndian, &header); err != nil {
+		return fmt.Errorf("failed to read RDB header: %v", err)
+	}
+
+	if string(header.Magic[:]) != RDBMagicHeader {
+		return fmt.Errorf("invalid RDB file format")
+	}
+
+	r.storage.Clear()
+
+	for i := uint32(0); i < header.KeyCount; i++ {
+		key, value, err := r.readKey(file)
+		if err != nil {
+			return fmt.Errorf("failed to read key %d: %v", i, err)
+		}
+
+		if err := r.storage.Set(key, value); err != nil {
+			return fmt.Errorf("failed to restore key %s: %v", key, err)
+		}
+
+		if !value.ExpiredAt.IsZero() {
+			ttl := time.Until(value.ExpiredAt)
+			if ttl > 0 {
+				r.storage.Expire(key, ttl)
+			}
+		}
+	}
+
+	var eofMarker byte
+	if err := binary.Read(file, binary.BigEndian, &eofMarker); err != nil {
+		return fmt.Errorf("failed to read EOF marker: %v", err)
+	}
+	if eofMarker != RDBTypeEOF {
+		return fmt.Errorf("invalid EOF marker")
+	}
+
+	var checksum uint32
+	if err := binary.Read(file, binary.BigEndian, &checksum); err != nil {
+		return fmt.Errorf("failed to read checksum: %v", err)
+	}
+
 	return nil
 }
 
@@ -119,6 +179,105 @@ func (m *RDBManager) writeKey(file *os.File, key string, value *storage.StorageV
 	}
 
 	return nil
+}
+
+func (m *RDBManager) readKey(file *os.File) (string, *storage.StorageValue, error) {
+	var expireAt time.Time
+
+	var typeByte byte
+	if err := binary.Read(file, binary.BigEndian, &typeByte); err != nil {
+		return "", nil, err
+	}
+
+	if typeByte == RDBTypeExpire {
+		var expirationTimestamp int64
+		if err := binary.Read(file, binary.BigEndian, &expirationTimestamp); err != nil {
+			return "", nil, err
+		}
+
+		expireAt = time.Unix(expirationTimestamp, 0)
+		var typeByte byte
+		if err := binary.Read(file, binary.BigEndian, &typeByte); err != nil {
+			return "", nil, err
+		}
+	}
+
+	key, err := m.readString(file)
+	if err != nil {
+		return "", nil, err
+	}
+
+	valueType := m.serializer.ConvertFromRDB(typeByte)
+	valueData, err := m.readValueData(file)
+	if err != nil {
+		return "", nil, err
+	}
+
+	valueDataObj, err := m.serializer.DeserializeValue(valueType, valueData)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return key,
+		&storage.StorageValue{
+			Type:      valueType,
+			Data:      valueDataObj,
+			ExpiredAt: expireAt,
+		},
+		nil
+}
+
+func (m *RDBManager) readString(file *os.File) (string, error) {
+	lenBuf := make([]byte, 1)
+	if _, err := file.Read(lenBuf); err != nil {
+		return "", err
+	}
+
+	length, bytesRead := m.serializer.DecodeLength(lenBuf)
+	if bytesRead == 0 {
+		return "", fmt.Errorf("invalid string length")
+	}
+
+	if bytesRead > 1 {
+		additional := make([]byte, bytesRead-1)
+		if _, err := file.Read(additional); err != nil {
+			return "", nil
+		}
+
+		lenBuf = append(lenBuf, additional...)
+		length, _ = m.serializer.DecodeLength(lenBuf)
+	}
+
+	data := make([]byte, length)
+	if _, err := file.Read(data); err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+func (m *RDBManager) readValueData(file *os.File) ([]byte, error) {
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	currentPos, err := file.Seek(0, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	remaning := stat.Size() - currentPos - 1 - 4
+	if remaning <= 0 {
+		return nil, fmt.Errorf("invalid value data size")
+	}
+
+	data := make([]byte, remaning)
+	if _, err := file.Read(data); err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (r *RDBManager) calculateChecksum(keys []string) uint32 {
