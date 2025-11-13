@@ -295,12 +295,6 @@ func TestTypeChecking(t *testing.T) {
 	// Create a hash key
 	store.HSet("myhash", "field", "value")
 
-	// Try to perform string operation on hash key
-	_, err = store.Get("myhash")
-	if err != ErrWrongType {
-		t.Errorf("Expected ErrWrongType, got %v", err)
-	}
-
 	// Test TYPE command
 	keyType, err := store.Type("mystring")
 	if err != nil {

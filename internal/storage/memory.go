@@ -2,20 +2,55 @@ package storage
 
 import (
 	"fmt"
+	"ivanSaichkin/myredis/internal/config"
 	"strconv"
 	"sync"
 	"time"
 )
 
 type MemoryStorage struct {
-	mu   sync.RWMutex
-	data map[string]*StorageValue
+	mu          sync.RWMutex
+	data        map[string]*StorageValue
+	persistence *PersistenceManager
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		data: make(map[string]*StorageValue),
 	}
+}
+
+func NewMemoryStorageWithPersistence(config *config.PersistenceConfig) *MemoryStorage {
+	storage := &MemoryStorage{
+		data: make(map[string]*StorageValue),
+	}
+
+	if config != nil && config.Enabled {
+		storage.persistence = NewPersistenceManager(config, storage)
+	}
+
+	return storage
+}
+
+func (s *MemoryStorage) StartPersistence() error {
+	if s.persistence != nil {
+		return s.persistence.Start()
+	}
+	return nil
+}
+
+func (s *MemoryStorage) StopPersistence() error {
+	if s.persistence != nil {
+		return s.persistence.Stop()
+	}
+	return nil
+}
+
+func (s *MemoryStorage) SaveSnapshot() error {
+	if s.persistence != nil {
+		return s.persistence.Save()
+	}
+	return nil
 }
 
 func (s *MemoryStorage) Get(key string) (*StorageValue, error) {

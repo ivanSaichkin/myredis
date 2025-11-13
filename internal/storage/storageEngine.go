@@ -57,4 +57,6 @@ type Storage interface {
 
 	// Cleanup
 	CleanupExpired()
+
+	SaveSnapshot() error
 }

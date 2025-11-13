@@ -98,6 +98,13 @@ func (e *Executor) Execute(cmd *Command) protocol.Value {
 	case "FLUSHDB", "CLEAR":
 		return e.clear(cmd)
 
+	case "SAVE":
+		return e.save(cmd)
+	case "BGSAVE":
+		return e.bgsave(cmd)
+	case "LASTSAVE":
+		return e.lastsave(cmd)
+
 	default:
 		return protocol.Value{
 			Type: protocol.Error,
@@ -352,4 +359,74 @@ func simpleMatch(s, pattern string) bool {
 	}
 
 	return s == pattern
+}
+
+func (e *Executor) save(cmd *Command) protocol.Value {
+	if len(cmd.Args) != 0 {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR wrong number of arguments for 'save' command",
+		}
+	}
+
+	if storage, ok := e.storage.(interface{ SaveSnapshot() error }); ok {
+		if err := storage.SaveSnapshot(); err != nil {
+			return protocol.Value{
+				Type: protocol.Error,
+				Str:  "ERR " + err.Error(),
+			}
+		}
+		return protocol.Value{
+			Type: protocol.SimpleString,
+			Str:  "OK",
+		}
+	}
+
+	return protocol.Value{
+		Type: protocol.Error,
+		Str:  "ERR persistence not enabled",
+	}
+}
+
+func (e *Executor) bgsave(cmd *Command) protocol.Value {
+	if len(cmd.Args) != 0 {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR wrong number of arguments for 'bgsave' command",
+		}
+	}
+
+	if storage, ok := e.storage.(interface{ SaveSnapshot() error }); ok {
+		go func() {
+			if err := storage.SaveSnapshot(); err != nil {
+				fmt.Printf("BGSAVE failed: %v\n", err)
+			} else {
+				fmt.Println("BGSAVE completed successfully")
+			}
+		}()
+
+		return protocol.Value{
+			Type: protocol.SimpleString,
+			Str:  "Background saving started",
+		}
+	}
+
+	return protocol.Value{
+		Type: protocol.Error,
+		Str:  "ERR persistence not enabled",
+	}
+}
+
+func (e *Executor) lastsave(cmd *Command) protocol.Value {
+	if len(cmd.Args) != 0 {
+		return protocol.Value{
+			Type: protocol.Error,
+			Str:  "ERR wrong number of arguments for 'lastsave' command",
+		}
+	}
+
+	return protocol.Value{
+		Type: protocol.Integer,
+		Num:  int(time.Now().Unix()),
+	}
 }

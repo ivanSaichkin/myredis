@@ -2,67 +2,38 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 	"time"
 )
 
-type SyncStrategy string
+type PersistenceConfig struct {
+	DataDir      string
+	Enabled      bool
+	Filename     string
+	AutoSave     bool
+	SaveInterval time.Duration
+}
 
-const (
-	SyncAlways   SyncStrategy = "always"
-	SyncEverySec SyncStrategy = "everysec"
-	SyncNo       SyncStrategy = "no"
-)
+func DefaultePersistenceConfig() *PersistenceConfig {
+	dataDir := "data"
+	os.MkdirAll(dataDir, 0755)
 
-type PersistanceConfig struct {
-	DataDir string
-	Enabled bool
-
-	//RDB
-	RDBEnabled          bool
-	RDBSaveInterval     time.Duration
-	RDBChangesThreshold int
-	RDBFileName         string
-
-	//AOF
-	AOFEnabled        bool
-	AOFFilename       string
-	AOFSyncStrategy   SyncStrategy
-	AOFRewriteMinSize int64
+	return &PersistenceConfig{
+		Enabled:      true,
+		DataDir:      dataDir,
+		Filename:     "dump.bin",
+		AutoSave:     true,
+		SaveInterval: 60 * time.Second,
+	}
 }
 
 type Config struct {
 	Address     string
-	Persistance PersistanceConfig
+	Persistence PersistenceConfig
 }
 
 func DefaulteConfig() *Config {
-	dataDir := "data"
-	os.MkdirAll(dataDir, 0755)
-
 	return &Config{
-		Address: ":6379",
-		Persistance: PersistanceConfig{
-			Enabled: true,
-			DataDir: dataDir,
-
-			RDBEnabled:          true,
-			RDBSaveInterval:     60 * time.Second,
-			RDBChangesThreshold: 1000,
-			RDBFileName:         "dump.rdb",
-
-			AOFEnabled:        false,
-			AOFFilename:       "appendonly.aof",
-			AOFSyncStrategy:   SyncEverySec,
-			AOFRewriteMinSize: 64 * 1024 * 1024,
-		},
+		Address:     ":6379",
+		Persistence: *DefaultePersistenceConfig(),
 	}
-}
-
-func (c *PersistanceConfig) GetRDBPath() string {
-	return filepath.Join(c.DataDir, c.RDBFileName)
-}
-
-func (c *PersistanceConfig) GetAOFPath() string {
-	return filepath.Join(c.DataDir, c.AOFFilename)
 }
