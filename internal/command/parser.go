@@ -38,13 +38,11 @@ func (p *Parser) ParseCommand() (*Command, error) {
 		return nil, protocol.ErrInvalidSyntax
 	}
 
-	// Первый элемент массива - имя команды
 	cmdName, err := value.Array[0].String()
 	if err != nil {
 		return nil, err
 	}
 
-	// Остальные элементы - аргументы
 	args := make([]string, len(value.Array)-1)
 	for i := 1; i < len(value.Array); i++ {
 		arg, err := value.Array[i].String()
