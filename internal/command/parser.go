@@ -5,25 +5,21 @@ import (
 	"strings"
 )
 
-// Command представляет разобранную команду
 type Command struct {
 	Name string
 	Args []string
 }
 
-// Parser парсит RESP значения в команды
 type Parser struct {
 	reader *protocol.RESPReader
 }
 
-// NewParser создает новый парсер команд
 func NewParser(reader *protocol.RESPReader) *Parser {
 	return &Parser{
 		reader: reader,
 	}
 }
 
-// ParseCommand парсит следующую команду из потока
 func (p *Parser) ParseCommand() (*Command, error) {
 	value, err := p.reader.Read()
 	if err != nil {
